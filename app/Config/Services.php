@@ -19,6 +19,32 @@ use CodeIgniter\Config\BaseService;
  */
 class Services extends BaseService
 {
+    public static function vendorActivityRecorder(bool $getShared = true): \App\Services\VendorActivityRecorder
+    {
+        if ($getShared) {
+            return static::getSharedInstance('vendorActivityRecorder');
+        }
+        return new \App\Services\VendorActivityRecorder();
+    }
+
+    public static function vendorApiContext(bool $getShared = true): \App\Services\VendorApiContext
+    {
+        if ($getShared) {
+            return static::getSharedInstance('vendorApiContext');
+        }
+
+        return new \App\Services\VendorApiContext();
+    }
+
+    public static function vendorApiKeys(bool $getShared = true): \App\Services\VendorApiKeyService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('vendorApiKeys');
+        }
+
+        return new \App\Services\VendorApiKeyService();
+    }
+
     /*
      * public static function example($getShared = true)
      * {

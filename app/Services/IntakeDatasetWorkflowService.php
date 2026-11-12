@@ -13,6 +13,9 @@ final class IntakeDatasetWorkflowService
         if ($job === null) {
             throw new RuntimeException('Import dataset not found.');
         }
+        if (($job['source_type'] ?? 'excel') === 'vendor_api') {
+            return (new VendorImportService())->transition('intake', $jobId, $action, $actorId);
+        }
         if (! in_array($job['status'], ['completed', 'completed_with_errors'], true)) {
             throw new RuntimeException('The database import must complete before workflow review.');
         }

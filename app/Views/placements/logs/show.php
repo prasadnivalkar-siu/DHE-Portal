@@ -4,6 +4,7 @@
 <?php
 $summary = json_decode((string) ($job['summary'] ?? ''), true) ?: [];
 $status = (string) $job['status'];
+$vendorSubmission = ($job['source_type'] ?? 'excel') === 'vendor_api';
 $workflow = (string) ($job['workflow_status'] ?? 'draft');
 $actor = static fn (?int $id): string => $id ? ($actors[$id] ?? ('User #' . $id)) : '—';
 ?>
@@ -15,6 +16,7 @@ $actor = static fn (?int $id): string => $id ? ($actors[$id] ?? ('User #' . $id)
     </div>
 </div>
 
+<?php if ($vendorSubmission): ?><?= view('api/vendor_import_review', ['job' => $job, 'category' => 'placements']) ?><?php endif ?>
 <div class="row g-3 mb-4">
     <div class="col-6 col-xl"><div class="mini-metric"><span>Job status</span><strong><span class="status status-<?= esc($status) ?>"><?= esc(str_replace('_', ' ', $status)) ?></span></strong></div></div>
     <div class="col-6 col-xl"><div class="mini-metric"><span>Total rows</span><strong><?= number_format((int) $job['total_rows']) ?></strong></div></div>

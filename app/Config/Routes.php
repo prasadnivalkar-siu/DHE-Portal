@@ -291,9 +291,41 @@ $routes->group('admin/users', ['namespace' => 'App\\Controllers\\Admin'], static
     $routes->post('(:num)/status', 'UsersController::updateStatus/$1', ['as' => 'admin.users.status', 'filter' => 'permission:users.edit']);
 });
 
+$routes->group('admin/vendors', ['namespace' => 'App\\Controllers\\Admin'], static function (RouteCollection $routes): void {
+    $routes->get('activity', 'VendorActivityController::index', ['as' => 'admin.vendors.activity', 'filter' => 'permission:vendors.activity']);
+    $routes->post('activity/filter', 'VendorActivityController::filter', ['as' => 'admin.vendors.activity.filter', 'filter' => 'permission:vendors.activity']);
+    $routes->post('activity/report', 'VendorActivityController::report', ['as' => 'admin.vendors.activity.report', 'filter' => 'permission:vendors.activity']);
+    $routes->get('/', 'VendorsController::index', ['as' => 'admin.vendors', 'filter' => 'permission:vendors.view']);
+    $routes->get('create', 'VendorsController::create', ['as' => 'admin.vendors.create', 'filter' => 'permission:vendors.manage']);
+    $routes->post('/', 'VendorsController::store', ['as' => 'admin.vendors.store', 'filter' => 'permission:vendors.manage']);
+    $routes->get('(:num)', 'VendorsController::edit/$1', ['as' => 'admin.vendors.edit', 'filter' => 'permission:vendors.manage']);
+    $routes->post('(:num)', 'VendorsController::update/$1', ['as' => 'admin.vendors.update', 'filter' => 'permission:vendors.manage']);
+    $routes->post('(:num)/key', 'VendorsController::regenerateKey/$1', ['as' => 'admin.vendors.regenerate_key', 'filter' => 'permission:vendors.manage']);
+    $routes->post('(:num)/key/expiry', 'VendorsController::updateKeyExpiry/$1', ['as' => 'admin.vendors.key_expiry', 'filter' => 'permission:vendors.manage']);
+    $routes->post('(:num)/key/overlap/revoke', 'VendorsController::revokeKeyOverlap/$1', ['as' => 'admin.vendors.revoke_overlap', 'filter' => 'permission:vendors.manage']);
+    $routes->post('(:num)/key/reveal', 'VendorsController::revealKey/$1', ['as' => 'admin.vendors.reveal_key', 'filter' => 'permission:vendors.keys.reveal']);
+});
+
 $routes->group('admin/roles', ['namespace' => 'App\\Controllers\\Admin', 'filter' => 'permission:roles.view'], static function (RouteCollection $routes): void {
     $routes->get('/', 'RolesController::index', ['as' => 'admin.roles']);
 });
+
+foreach (array_keys(\App\Services\VendorApiKeyService::CATEGORIES) as $category) {
+    $reviewPermission = match ($category) {
+        'admissions' => 'imports.view', 'examinations' => 'examination_imports.view',
+        'results' => 'result_imports.view', 'intake' => 'intake_imports.view',
+        'expenses' => 'expense_imports.view', 'placements' => 'placement_imports.view',
+    };
+    $routes->post('admin/' . $category . '/vendor-submission/(:num)/report', 'Admin\\VendorImportReportsController::download/' . $category . '/$1', [
+        'as' => $category . '.vendor_submission.report', 'filter' => 'permission:' . $reviewPermission,
+    ]);
+    $routes->post('api/v1/' . $category . '/import', 'Api\\V1\\VendorImportsController::store/' . $category, [
+        'as' => 'api.v1.' . $category . '.import', 'filter' => 'apiKey:ingest',
+    ]);
+    $routes->post('api/v1/' . $category . '/import/status', 'Api\\V1\\VendorImportsController::status/' . $category, [
+        'as' => 'api.v1.' . $category . '.import.status', 'filter' => 'apiKey:ingest',
+    ]);
+}
 
 $routes->post('api/v1/admissions', 'Api\\V1\\AdmissionsController::index', [
     'as' => 'api.v1.admissions',

@@ -36,6 +36,7 @@ final class ResultApiDeliveryTracker
         ?int $redeliveryFromRecordId = null,
         ?string $redeliveryFromDate = null,
         ?string $idempotencyKey = null,
+        string $institutionScopeKey = '',
     ): array {
         $deliveredAt = date('Y-m-d H:i:s');
         $returned = count($rows);
@@ -57,9 +58,13 @@ final class ResultApiDeliveryTracker
         ]));
 
         $this->db->transBegin();
+        if ($institutionScopeKey !== '') {
+            $cycleKey = hash('sha256', $cycleKey . '|' . $institutionScopeKey);
+        }
         try {
             $this->db->table('result_api_logs')->insert([
                 'vendor_code' => $vendorCode,
+                'institution_scope_key' => $institutionScopeKey,
                 'delivery_mode' => $deliveryMode,
                 'redelivery_from_record_id' => $redeliveryFromRecordId,
                 'redelivery_from_date' => $redeliveryFromDate,
@@ -141,6 +146,11 @@ final class ResultApiDeliveryTracker
                 ->where('season', $season)
                 ->get()
                 ->getRowArray();
+            if ($state !== null && ($state['institution_scope_key'] ?? '') !== $institutionScopeKey) {
+                $state['completed_checkpoint_at'] = null;
+                $state['last_record_id'] = null;
+                $state['last_record_updated_at'] = null;
+            }
             $alreadyCompletedCycle = $state !== null
                 && $state['current_cycle_key'] === $cycleKey
                 && (int) $state['sync_completed'] === 1
@@ -167,6 +177,7 @@ final class ResultApiDeliveryTracker
 
             $stateData = [
                 'vendor_code' => $vendorCode,
+                'institution_scope_key' => $institutionScopeKey,
                 'academic_year' => $academicYear,
                 'university_aishe_code' => $universityCode,
                 'exam_year' => $examYear,

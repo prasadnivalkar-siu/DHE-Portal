@@ -261,6 +261,10 @@ final class IntakeImportsController extends BaseController
 
     public function rejected(int $id): ResponseInterface
     {
+        $apiBatch = db_connect()->table('vendor_api_imports')->where('category', 'intake')->where('import_job_id', $id)->countAllResults();
+        if ($apiBatch > 0) {
+            return (new \App\Services\VendorImportReportService())->download('intake', $id, $this->response, true);
+        }
         $job = (new IntakeImportJobModel())->find($id);
         if ($job === null) {
             throw PageNotFoundException::forPageNotFound('Import log not found.');

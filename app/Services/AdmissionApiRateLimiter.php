@@ -8,9 +8,9 @@ use Throwable;
 final class AdmissionApiRateLimiter
 {
     /** @return array{allowed: bool, limit: int, remaining: int, retryAfter: int} */
-    public function consume(string $vendorCode): array
+    public function consume(string $vendorCode, ?int $vendorLimit = null): array
     {
-        $limit = max(1, (int) env('dhe.apiRateLimitPerMinute', 60));
+        $limit = max(1, $vendorLimit ?? (int) env('dhe.apiRateLimitPerMinute', 60));
         $db = db_connect();
         $now = new \DateTimeImmutable();
         $window = $now->format('Y-m-d H:i:00');

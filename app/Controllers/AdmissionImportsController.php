@@ -261,6 +261,10 @@ final class AdmissionImportsController extends BaseController
 
     public function rejected(int $id): ResponseInterface
     {
+        $apiBatch = db_connect()->table('vendor_api_imports')->where('category', 'admissions')->where('import_job_id', $id)->countAllResults();
+        if ($apiBatch > 0) {
+            return (new \App\Services\VendorImportReportService())->download('admissions', $id, $this->response, true);
+        }
         $job = (new AdmissionImportJobModel())->find($id);
         if ($job === null) {
             throw PageNotFoundException::forPageNotFound('Import log not found.');

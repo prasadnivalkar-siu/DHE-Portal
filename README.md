@@ -25,7 +25,7 @@ DHE Portal is a category-based higher education data portal. **Admission Data**,
 - Result Data list/detail screens, 440-column workbook import, validation preview, rejected-row export, and publishing workflow
 - Paginated Result Data API with four-field dataset filtering, delivery tracking, acknowledgment, redelivery, rate limiting, and idempotency protection
 - Incremental API filtering through `lastUpdateDate`
-- Optional `X-API-Key` protection
+- Vendor-specific `X-API-Key` authentication, category access, and configurable request limits
 - Secure administrator sign-in powered by CodeIgniter Shield
 - Role-based access for Super Administrator, Administrator, Data Manager, Auditor, and Viewer
 - User provisioning, role assignment, account disabling, and password changes
@@ -237,19 +237,22 @@ Administrators and Super Administrators can run **Database maintenance** from th
 
 ### API key
 
-Set the following value in `.env` to require authentication:
+Configure `encryption.key` once (`php spark key:generate` if no encryption key exists), then run `php spark migrate --all`. Use **Administration → Vendors** (Administrator or Super Administrator) to create a vendor. Enter a unique immutable vendor code, name, contact email, allowed categories, status, and requests-per-minute limit (per category). Creation generates a 256-bit random API key. Authentication uses its SHA-256 hash; an encrypted copy allows authorized administrators to reveal the current key.
 
-```ini
-dhe.apiKey = 'replace-with-a-long-random-secret'
-```
-
-Clients must then send:
+Clients must send the vendor key on all data and acknowledgment endpoints:
 
 ```text
-X-API-Key: replace-with-a-long-random-secret
+Content-Type: application/json
+X-API-Key: <vendor-key-generated-in-the-portal>
 ```
 
-If `dhe.apiKey` is blank, the endpoint remains open for local development.
+The key determines the vendor identity for delivery tracking, acknowledgments, idempotency, and rate limits. `Vendor_Code` and `X-Vendor-Code` are optional; when supplied, each must match the authenticated vendor. A mismatch or disallowed category returns 403. Missing/invalid keys and inactive vendors return 401. An unavailable vendor database returns 503; access is never opened automatically.
+
+Use **Show API key** in the vendor list or Manage page to display an existing key, then **Hide API key** or **Copy key**. Reveals require the `vendors.keys.reveal` permission (Administrators and Super Administrators by default), use a CSRF-protected POST request, prevent response caching, and record `vendor.key_viewed` without putting the key in audit logs. Normal vendor-list responses and page refreshes do not contain the full key.
+
+Use **Manage → Rotate API key** to replace a key, optionally keeping the immediately previous key usable for a short overlap. Set the vendor to **Inactive** to suspend both keys. Key replacement retains the vendor's delivery history and checkpoints. Creation, edits, status changes, expiry changes, overlap revocation, and rotation are recorded in administrative audit logs without plaintext keys or hashes. Preserve `encryption.key` with your deployment configuration and database backups; encrypted vendor keys require the matching encryption key. Migration 000017 backfills the configured legacy key only if its hash still matches a current vendor. Other older hash-only keys cannot be recovered: rotate them to enable viewing and give the replacement key to the vendor. Missing or incorrect encryption configuration does not disable hash-based API authentication.
+
+Migration 000015 imports an existing nonempty `dhe.apiKey` as **Existing API integration**, bound only to `default-vendor` with access to all six categories. Requests using that key must omit Vendor_Code or use `default-vendor`. It cannot impersonate other vendor codes. After migration the .env setting is no longer used for authentication, including after key regeneration; it may be removed from the deployment configuration. If no shared key exists, create a vendor before API access is possible. Existing histories under other vendor codes remain intact and can be continued by creating a vendor with the exact same code.
 
 ## Examination Data API
 
@@ -309,6 +312,68 @@ POST /api/v1/results/acknowledge
 Result Academic Year is treated as a cohort family based on its starting year. Payload `2021-22` therefore includes stored sessions `2021-22`, `2021-23`, `2021-24`, `2021-25`, and `2021-26`. The original `SESSION` remains unchanged in each response record.
 
 Result Season values are canonicalized by removing a trailing year. For example, `Winter 2021` and `Winter` both become `Winter`; `Summer 2021` and `Summer` both become `Summer`. The canonical value is used for imports, queries, delivery tracking, and responses.
+
+## API key expiry and rotation
+
+Run `php spark migrate --all` to apply migration 000020. Existing keys retain their current no-expiry behavior. Newly created keys and the rotation form default to expiry in 90 days; administrators may choose a future expiry date/time or explicitly leave it blank for no expiry. All times shown in Vendor Management use the application's timezone. **Manage → Save expiry** changes the current key's deadline without replacing it; expired keys return HTTP 401 on every API endpoint. No scheduled job is required.
+
+**Rotate API key** generates a replacement immediately and offers no overlap, 15 minutes, 1 hour (default), 6 hours, or 24 hours. The server caps overlap at 1,440 minutes and at the earlier of both keys' expiry dates. Expired keys are never revived by rotation. Only the immediately previous hash/prefix is retained for authentication during overlap; its encrypted plaintext is not retained. Rotating again ends any older overlap immediately. **End overlap now** revokes the previous key without affecting the current key. Shortening the current expiry also shortens the previous key's deadline when necessary; extending/removing expiry cannot extend an existing overlap. Both keys stop working when the vendor is inactive.
+
+Both keys identify the same vendor and share category/institution permissions, rate limits, idempotency records, delivery logs, and incremental checkpoints. Vendors can retry with the replacement key without creating another delivery or batch. API responses for authenticated keys include `X-API-Key-Status: current` or `previous`, plus `X-API-Key-Expires-At` in ISO 8601 format when a deadline applies. Vendor Management shows expiry/expiring-soon status and last usage separately for each key. **Show API key** displays the current key. Rotation, expiry, and overlap controls require `vendors.manage` and CSRF-protected POST; stale key forms are rejected after another rotation.
+
+## Institution access restrictions
+
+Run `php spark migrate --all` to apply migration 000018. In **Administration → Vendors → Manage → Institution access**, choose all institutions or add paired university/institution code rules. A blank institution code explicitly grants the whole university. Codes ignore case and surrounding whitespace; leading zeros remain significant (`001` differs from `1`). New vendors default to restricted access and require at least one rule. Existing vendors retain unrestricted access until an administrator restricts them. Scope changes are audited.
+
+Rules apply to both consume and submit permissions across all six categories. Admission matches `Univ_Code` + `College_Code`; Examination matches `UNIV_AISHE_CODE` + `COLLEGE/STUDY_CENTER_CODE`; Result matches `UNIV_AISHE_CODE` + `ORG_AISHE_CODE`; Intake and Placement match `University AISHE Code` + `University / College AISHE code`; Expenses matches `University AISHE Code` + `AISHE Code`. Add separate paired rules if institution codes differ between categories.
+
+Consumption rejects unauthorized universities with HTTP 403 and filters records, totals, pagination, incremental queries, and redelivery by the current scope. API payloads do not need an extra institution parameter. Access changes isolate cached responses and delivery cursors; old idempotency keys return 409 rather than replaying a response from another scope. Acknowledgments from another scope return 404. After changing scope, start a full synchronization using `PageNo: 1`, an empty `lastUpdateDate`, and fresh idempotency keys so newly granted institutions' older records are included.
+
+Submission checks every row's institution and the existing target record before accepting an update. Out-of-scope rows are rejected without changing data, including Examination identity collisions across colleges. Status and retries recheck accepted batch rows against current permissions and return 403 after access is revoked. Review and publication recheck the producer's current category, active status, and institution access; a revoked draft cannot be published.
+
+## Vendor activity dashboard
+
+Run `php spark migrate --all` to create the indexed request activity table (migration 000019). Open **Administration → Vendor activity**, or use **Activity dashboard** on the Vendors page and **View activity** on a vendor's Manage page. The `vendors.activity` permission controls the dashboard, filters, pagination, and CSV report; Administrators and Super Administrators have it through `vendors.*`.
+
+The dashboard shows request counts, success rate, failures (including access denials and rate limiting), idempotency replays, average response time, daily/weekly trends, category and vendor breakdowns, records sent/acknowledged/pending/reported failed, and current Draft/Validated/Approved/Published submission counts. Vendor, category, and inclusive date filters (up to 366 days) and pagination use CSRF-protected POST requests stored in the administrator's session. Filter values never appear in the URL. Request CSV exports honor the filters and are limited to 10,000 rows; narrow the filters for a larger history.
+
+Request tracking starts after installation and includes recognized active vendor keys, before-filter rejections, acknowledgments, imports, status calls, and idempotent retries. Unknown/inactive credentials cannot be reliably attributed to a vendor. The log stores request metadata only, without API keys, payloads, or student records. Logging failure does not prevent API delivery. Delivery and submission summaries also use retained historical logs; delivery totals count delivery occurrences (including redelivery), not unique student records. Delivery tracking resets remove their corresponding historical totals. Acknowledgment totals and submission workflow counts reflect their current state for deliveries/batches originating in the selected period.
+
+## Vendor data ingestion API
+
+Run `php spark migrate --all` after deployment. Existing vendors keep their consume permissions; submission access is disabled until an administrator selects categories under **Vendors → Manage → Submit data for verification**. A vendor can be a producer, a consumer, or both, with different category lists. The same vendor-specific `X-API-Key` authenticates both directions. Submitting data never grants publication permissions.
+
+All six categories support:
+
+```text
+POST /api/v1/{category}/import
+POST /api/v1/{category}/import/status
+```
+
+`{category}` is `admissions`, `examinations`, `results`, `intake`, `expenses`, or `placements`. Send `Content-Type: application/json` and `X-API-Key`. Import requires an `Idempotency-Key` header or `Idempotency_Key` body value (8–100 characters, letters/numbers/periods/underscores/colons/hyphens). `Vendor_Code` and `X-Vendor-Code` are optional and must match the key when provided.
+
+```json
+{
+  "Idempotency_Key": "admissions-2024-batch-001",
+  "Records": [
+    {
+      "Academic_Year": "2024-25",
+      "Univ_Code": "U-1234",
+      "College_Code": "C-1234",
+      "StudentID": "student-001",
+      "Program_code": "0007"
+    }
+  ]
+}
+```
+
+Use the category's response-field names or Excel header aliases. A request contains 1–500 full records and at most 8 MB of JSON. Blank/dash/omitted optional values become `NA`; omitted optional values on an update replace prior values, so this is a full-record submission, not PATCH. Required identifiers and the same schema/duplicate rules as Excel apply. Result submissions use `SESSION`, `YEAR`, and `SEASON` inside each record. Internal fields, publication status, nested values, and unknown fields are rejected.
+
+HTTP 201 returns `batchId`, `importJobId`, `vendorCode`, `category`, `workflowStatus`, `totalRows`, `acceptedRows`, `duplicateRows`, `rejectedRows`, and `rows` with each one-based row number, outcome, and errors. Partial validation is supported: accepted rows are staged; rejected rows are not accepted. All-rejected batches are logged with HTTP 422. Identical duplicates are skipped. Later conflicting rows for the same identity in one request are rejected.
+
+Idempotency is scoped to vendor and category and retained with the import log: retrying the same records/key replays the original result; changing records with the same key returns 409. Corrected data requires a new key. Submission and status share the configured vendor rate limit per category, separately from consumption requests. HTTP 429 includes Retry-After. Status uses `{"Batch_ID": 42}` and only returns batches belonging to the authenticated vendor and category.
+
+Submissions appear in existing category **Import Logs**, marked with their source vendor and batch ID. Administrators can inspect the first 20 rows, download all submitted rows or rejected rows as CSV, and use the existing role-protected **Draft → Validated → Approved → Published** actions. Staged records are stored separately from published data. Updates preserve the old published version until the whole batch is published atomically; publication changes the update timestamp so incremental consumers receive changes. If a target changed since submission, publishing stops without applying this batch, and a new submission is required. Batch and actor history are retained.
 
 ## Tests and checks
 

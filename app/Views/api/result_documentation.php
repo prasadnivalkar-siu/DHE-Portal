@@ -5,7 +5,9 @@
 
 <div class="row g-4">
     <div class="col-xl-8">
-        <section class="panel mb-4"><div class="endpoint-line"><span>POST</span><code><?= esc(base_url('api/v1/results')) ?></code></div><p class="mt-3 mb-0 text-secondary">Send <code>Content-Type: application/json</code>. When an API key is configured, also send it in the <code>X-API-Key</code> header.</p></section>
+        <section class="panel mb-4"><div class="endpoint-line"><span>POST</span><code><?= esc(base_url('api/v1/results')) ?></code></div><p class="mt-3 mb-0 text-secondary">Send <code>Content-Type: application/json</code>. Send your active vendor API key in the <code>X-API-Key</code> header for every request.</p></section>
+        <?= view('api/vendor_authentication') ?>
+        <?= view('api/vendor_ingestion_documentation', ['category' => 'results']) ?>
         <section class="panel mb-4"><h3>Request payload</h3><pre class="code-block"><code>{
   "Vendor_Code": "vendor-01",
   "Academic_Year": "2024-25",

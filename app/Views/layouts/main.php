@@ -155,8 +155,14 @@ usort(
                 <?php endforeach ?>
             <?php endif ?>
 
-            <?php if ($currentUser->can('users.view') || $currentUser->can('roles.view')): ?>
+            <?php if ($currentUser->can('users.view') || $currentUser->can('roles.view') || $currentUser->can('vendors.view') || $currentUser->can('vendors.activity')): ?>
                 <span class="nav-label">Administration</span>
+                <?php if ($currentUser->can('vendors.view')): ?>
+                    <a class="<?= str_starts_with($path, 'admin/vendors') && ! str_starts_with($path, 'admin/vendors/activity') ? 'active' : '' ?>" href="<?= url_to('admin.vendors') ?>"><span>Vendors</span></a>
+                <?php endif ?>
+                <?php if ($currentUser->can('vendors.activity')): ?>
+                    <a class="<?= str_starts_with($path, 'admin/vendors/activity') ? 'active' : '' ?>" href="<?= url_to('admin.vendors.activity') ?>"><span>Vendor activity</span></a>
+                <?php endif ?>
                 <?php if ($currentUser->can('users.view')): ?>
                     <a class="<?= str_starts_with($path, 'admin/users') ? 'active' : '' ?>" href="<?= url_to('admin.users') ?>"><span>Users</span></a>
                 <?php endif ?>
@@ -217,6 +223,8 @@ usort(
                 </div>
             </details>
         <?php endforeach ?>
+        <?php if ($currentUser->can('vendors.view')): ?><a href="<?= url_to('admin.vendors') ?>">Vendors</a><?php endif ?>
+        <?php if ($currentUser->can('vendors.activity')): ?><a href="<?= url_to('admin.vendors.activity') ?>">Vendor activity</a><?php endif ?>
         <?php if ($currentUser->can('users.view')): ?><a href="<?= url_to('admin.users') ?>">Users</a><?php endif ?>
         <?php if ($currentUser->can('roles.view')): ?><a href="<?= url_to('admin.roles') ?>">Roles &amp; Permissions</a><?php endif ?>
         <a href="<?= url_to('admin.account') ?>">My Account</a>

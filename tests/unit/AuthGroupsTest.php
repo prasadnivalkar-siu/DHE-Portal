@@ -86,4 +86,19 @@ final class AuthGroupsTest extends TestCase
         self::assertContains('expense_imports.review', $this->config->matrix['auditor']);
         self::assertContains('result_imports.review', $this->config->matrix['auditor']);
     }
+
+    public function testVendorKeysAreManagedOnlyByAdministrators(): void
+    {
+        self::assertArrayHasKey('vendors.view', $this->config->permissions);
+        self::assertArrayHasKey('vendors.manage', $this->config->permissions);
+        self::assertArrayHasKey('vendors.keys.reveal', $this->config->permissions);
+        foreach (['superadmin', 'admin'] as $role) {
+            self::assertContains('vendors.*', $this->config->matrix[$role]);
+        }
+        foreach (['viewer', 'auditor', 'data_manager'] as $role) {
+            self::assertNotContains('vendors.*', $this->config->matrix[$role]);
+            self::assertNotContains('vendors.manage', $this->config->matrix[$role]);
+            self::assertNotContains('vendors.keys.reveal', $this->config->matrix[$role]);
+        }
+    }
 }

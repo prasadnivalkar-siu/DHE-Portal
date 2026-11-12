@@ -31,8 +31,8 @@ final class ResultController extends BaseController
         $pageNo = filter_var($payload['PageNo'] ?? 1, FILTER_VALIDATE_INT);
         $pageSize = filter_var($payload['PageSize'] ?? self::DEFAULT_PAGE_SIZE, FILTER_VALIDATE_INT);
         $lastUpdateInput = trim((string) ($payload['lastUpdateDate'] ?? ''));
-        $vendorCode = trim((string) ($payload['Vendor_Code'] ?? $this->request->getHeaderLine('X-Vendor-Code')));
-        $vendorCode = $vendorCode === '' ? 'default-vendor' : $vendorCode;
+        $vendorCode = service('vendorApiContext')->vendorCode();
+        $institutionScope = service('vendorApiContext')->institutionScope();
         $idempotencyKey = trim((string) ($payload['Idempotency_Key'] ?? $this->request->getHeaderLine('Idempotency-Key')));
         $redeliveryRecordRaw = $payload['Redelivery_From_Record_ID'] ?? null;
         $redeliveryFromRecordId = ($redeliveryRecordRaw === null || $redeliveryRecordRaw === '') ? null : filter_var($redeliveryRecordRaw, FILTER_VALIDATE_INT);
@@ -101,7 +101,7 @@ final class ResultController extends BaseController
         }
 
         try {
-            $rate = (new ResultApiRateLimiter())->consume($vendorCode);
+            $rate = (new ResultApiRateLimiter())->consume($vendorCode, service('vendorApiContext')->rateLimit());
         } catch (Throwable $exception) {
             log_message('error', 'API rate-limit check failed: {message}', ['message' => $exception->getMessage()]);
             return $this->fail('The request could not be authorized for delivery. Please retry.', 503);
@@ -119,7 +119,8 @@ final class ResultController extends BaseController
         $canonicalPayload = $payload;
         $canonicalPayload['Academic_Year'] = $academicYear;
         $canonicalPayload['Season'] = $season;
-        $requestHash = $idempotency->requestHash($canonicalPayload);
+        $hashPayload = $institutionScope->idempotencyPayload($canonicalPayload);
+        $requestHash = $idempotency->requestHash($hashPayload);
 
         $db = db_connect();
         $deliveryMode = ($redeliveryFromRecordId !== null || $redeliveryFromDate !== null) ? 'redelivery' : 'standard';
@@ -128,6 +129,7 @@ final class ResultController extends BaseController
         if ($deliveryMode === 'standard' && $lastUpdateDate !== null) {
             $resumeQuery = $db->table('result_api_logs')
                 ->where('vendor_code', $vendorCode)
+                ->where('institution_scope_key', $institutionScope->key())
                 ->where('academic_year', $academicYear)
                 ->where('university_aishe_code', $universityCode)
                 ->where('exam_year', $examYear)
@@ -174,7 +176,7 @@ final class ResultController extends BaseController
                 ->groupEnd();
             }
 
-            return $builder;
+            return service('vendorApiContext')->institutionScope()->apply($builder, 'results');
         };
 
         $remainingBeforeCall = $filters($db->table('results'))->countAllResults();
@@ -184,6 +186,7 @@ final class ResultController extends BaseController
                 ->select('COUNT(DISTINCT r.result_id) AS delivered_count', false)
                 ->join('result_api_logs l', 'l.id = r.api_log_id')
                 ->where('l.vendor_code', $vendorCode)
+                ->where('l.institution_scope_key', $institutionScope->key())
                 ->where('l.academic_year', $academicYear)
                 ->where('l.university_aishe_code', $universityCode)
                 ->where('l.exam_year', $examYear)
@@ -246,6 +249,7 @@ final class ResultController extends BaseController
                 $redeliveryFromRecordId === false ? null : $redeliveryFromRecordId,
                 $redeliveryFromDate,
                 $idempotencyKey === '' ? null : $idempotencyKey,
+                $institutionScope->key(),
             );
         } catch (Throwable $exception) {
             if ($idempotencyKey !== '') {
@@ -296,7 +300,7 @@ final class ResultController extends BaseController
         if (! is_array($payload)) {
             return $this->fail('The request body must contain a valid JSON object.', 400);
         }
-        $vendorCode = trim((string) ($payload['Vendor_Code'] ?? $this->request->getHeaderLine('X-Vendor-Code')));
+        $vendorCode = service('vendorApiContext')->vendorCode();
         $deliveryId = filter_var($payload['Delivery_ID'] ?? null, FILTER_VALIDATE_INT);
         $key = trim((string) ($payload['Acknowledgement_Key'] ?? ''));
         $inputStatus = strtolower(trim((string) ($payload['Status'] ?? 'received successfully')));
@@ -305,7 +309,7 @@ final class ResultController extends BaseController
             return $this->fail('Vendor_Code, Delivery_ID, Acknowledgement_Key, and a valid Status are required.', 422);
         }
         $db = db_connect();
-        $delivery = $db->table('result_api_logs')->where('id', $deliveryId)->where('vendor_code', $vendorCode)->where('acknowledgement_key', $key)->get()->getRowArray();
+        $delivery = $db->table('result_api_logs')->where('id', $deliveryId)->where('vendor_code', $vendorCode)->where('institution_scope_key', service('vendorApiContext')->institutionScope()->key())->where('acknowledgement_key', $key)->get()->getRowArray();
         if ($delivery === null) {
             return $this->fail('The delivery acknowledgment could not be matched.', 404);
         }

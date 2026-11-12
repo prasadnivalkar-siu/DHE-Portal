@@ -261,6 +261,10 @@ final class ExpenseImportsController extends BaseController
 
     public function rejected(int $id): ResponseInterface
     {
+        $apiBatch = db_connect()->table('vendor_api_imports')->where('category', 'expenses')->where('import_job_id', $id)->countAllResults();
+        if ($apiBatch > 0) {
+            return (new \App\Services\VendorImportReportService())->download('expenses', $id, $this->response, true);
+        }
         $job = (new ExpenseImportJobModel())->find($id);
         if ($job === null) {
             throw PageNotFoundException::forPageNotFound('Import log not found.');
